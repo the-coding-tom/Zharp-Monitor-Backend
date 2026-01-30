@@ -10,169 +10,307 @@ import {
 } from '../../common/constants/queues.constant';
 import { config } from '../../config/config';
 
+interface CleanupStats {
+  queueName: string;
+  completedRemoved: number;
+  failedRemoved: number;
+}
+
+interface RedisMemoryInfo {
+  usedMemory: number;
+  maxMemory: number;
+  usedMemoryPercent: number;
+}
+
 /**
  * Prevents Redis memory bloat from unconsumed or stalled Bull queue data.
  *
  * @remarks
  * - Hourly: removes old completed/failed jobs (Bull's removeOnComplete/removeOnFail can leave gaps under load).
- * - Every 6h: removes jobs stuck in “active” (e.g. worker died) so they don't sit in Redis forever.
+ * - Every 6h: removes jobs stuck in "active" (e.g. worker died) so they don't sit in Redis forever.
  * - Every 10min: logs queue counts and Redis memory; triggers aggressive cleanup when usage exceeds threshold.
  */
 @Injectable()
 export class QueueCleanupCron {
   private readonly logger = new Logger(QueueCleanupCron.name);
+  private readonly queues: Queue[] = [];
+
+  private isHourlyCleanupRunning = false;
+  private isStuckJobsCleanupRunning = false;
+  private isMonitoringRunning = false;
 
   constructor(
     @InjectQueue(EMAIL_NOTIFICATION_QUEUE) private readonly emailQueue: Queue,
     @InjectQueue(PUSH_NOTIFICATION_QUEUE) private readonly pushQueue: Queue,
     @InjectQueue(WHATSAPP_NOTIFICATION_QUEUE) private readonly whatsappQueue: Queue,
     @InjectQueue(STRIPE_CHECKOUT_QUEUE) private readonly stripeCheckoutQueue: Queue,
-  ) {}
-
-  // Single list so adding a queue only requires updating queue-producers.module and this getter.
-  private get allQueues(): Queue[] {
-    return [
+  ) {
+    this.queues = [
       this.emailQueue,
       this.pushQueue,
       this.whatsappQueue,
       this.stripeCheckoutQueue,
     ];
+    this.logger.log(`QueueCleanupCron initialized with ${this.queues.length} queues`);
   }
 
   /**
-   * Removes old completed/failed jobs so Redis does not retain them indefinitely under high load.
+   * Hourly cleanup of completed and failed jobs.
    */
   @Cron(CronExpression.EVERY_HOUR)
-  async cleanupCompletedAndFailed() {
-    this.logger.log('Starting hourly queue cleanup (completed/failed)');
+  async handleHourlyCleanup() {
+    if (this.isHourlyCleanupRunning) {
+      this.logger.debug('Previous hourly cleanup still running. Skipping this run.');
+      return;
+    }
+
+    this.isHourlyCleanupRunning = true;
+    this.logger.log('Starting hourly queue cleanup');
 
     try {
-      for (const queue of this.allQueues) {
-        const completedRemoved = await queue.clean(config.queueCleanup.completedCleanAgeMs, 'completed');
-        const failedRemoved = await queue.clean(config.queueCleanup.failedCleanAgeMs, 'failed');
+      const allStats: CleanupStats[] = [];
 
-        if (completedRemoved.length > 0 || failedRemoved.length > 0) {
-          this.logger.log(
-            `Queue ${queue.name}: removed ${completedRemoved.length} completed, ${failedRemoved.length} failed jobs`,
-          );
-        }
+      for (const queue of this.queues) {
+        const stats = await this.cleanupQueue(queue);
+        allStats.push(stats);
+      }
+
+      const totalCompleted = allStats.reduce((sum, s) => sum + s.completedRemoved, 0);
+      const totalFailed = allStats.reduce((sum, s) => sum + s.failedRemoved, 0);
+
+      if (totalCompleted > 0 || totalFailed > 0) {
+        this.logger.log(
+          `Hourly cleanup completed: removed ${totalCompleted} completed jobs, ${totalFailed} failed jobs across ${this.queues.length} queues`,
+        );
+      } else {
+        this.logger.debug('Hourly cleanup completed: no jobs removed');
       }
     } catch (error) {
       this.logger.error(
-        `Error during hourly queue cleanup: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Hourly cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         error instanceof Error ? error.stack : undefined,
       );
+    } finally {
+      this.isHourlyCleanupRunning = false;
     }
   }
 
   /**
-   * Removes jobs stuck in "active" (e.g. worker died mid-job) so they are not left in Redis forever.
+   * Cleanup stuck active jobs every 6 hours.
    */
   @Cron(CronExpression.EVERY_6_HOURS)
-  async cleanupStalledActive() {
-    this.logger.log('Starting stalled active jobs cleanup');
+  async handleStuckJobsCleanup() {
+    if (this.isStuckJobsCleanupRunning) {
+      this.logger.debug('Previous stuck jobs cleanup still running. Skipping this run.');
+      return;
+    }
+
+    this.isStuckJobsCleanupRunning = true;
+    this.logger.log('Starting stuck active jobs cleanup');
 
     try {
-      for (const queue of this.allQueues) {
-        const activeJobs = await queue.getJobs(['active'], 0, -1);
-        let removed = 0;
+      let totalStuckJobsRemoved = 0;
 
-        for (const job of activeJobs) {
-          const age = Date.now() - job.timestamp;
-          if (age > config.queueCleanup.stuckActiveAgeMs) {
-            await job.remove();
-            removed += 1;
-            this.logger.warn(
-              `Removed stuck job ${job.id} from ${queue.name} (age: ${Math.round(age / 60000)} min)`,
-            );
-          }
-        }
+      for (const queue of this.queues) {
+        const removedCount = await this.cleanupStuckActiveJobs(queue);
+        totalStuckJobsRemoved += removedCount;
+      }
 
-        if (removed > 0) {
-          this.logger.log(`Queue ${queue.name}: removed ${removed} stuck active jobs`);
-        }
+      if (totalStuckJobsRemoved > 0) {
+        this.logger.log(
+          `Stuck jobs cleanup completed: removed ${totalStuckJobsRemoved} stuck active jobs`,
+        );
+      } else {
+        this.logger.debug('Stuck jobs cleanup completed: no stuck jobs found');
       }
     } catch (error) {
       this.logger.error(
-        `Error during stalled jobs cleanup: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Stuck jobs cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         error instanceof Error ? error.stack : undefined,
       );
+    } finally {
+      this.isStuckJobsCleanupRunning = false;
     }
   }
 
   /**
-   * Logs queue counts and Redis memory for visibility; triggers aggressive cleanup when usage is critical.
+   * Monitor Redis memory and queue health every 10 minutes.
    */
   @Cron(CronExpression.EVERY_10_MINUTES)
-  async monitorQueuesAndRedis() {
-    try {
-      for (const queue of this.allQueues) {
-        const counts = await queue.getJobCounts();
-        const total =
-          (counts.waiting ?? 0) +
-          (counts.active ?? 0) +
-          (counts.completed ?? 0) +
-          (counts.failed ?? 0) +
-          (counts.delayed ?? 0);
+  async handleMonitoring() {
+    if (this.isMonitoringRunning) {
+      this.logger.debug('Previous monitoring run still active. Skipping this run.');
+      return;
+    }
 
-        if (total > 10000) {
-          this.logger.warn(`Queue ${queue.name} has high job count: ${total}`, counts as object);
-        }
+    this.isMonitoringRunning = true;
+
+    try {
+      const memoryInfo = await this.getRedisMemoryInfo();
+      const queueStats = await this.getQueueStatistics();
+
+      const memoryDisplay =
+        memoryInfo.maxMemory > 0
+          ? `${(memoryInfo.usedMemory / 1024 / 1024).toFixed(2)} MB / ${(memoryInfo.maxMemory / 1024 / 1024).toFixed(2)} MB (${memoryInfo.usedMemoryPercent.toFixed(1)}%)`
+          : `${(memoryInfo.usedMemory / 1024 / 1024).toFixed(2)} MB (no limit set)`;
+
+      this.logger.log(`Redis memory: ${memoryDisplay}`);
+      this.logger.log(
+        `Queue totals - Waiting: ${queueStats.totalWaiting}, Active: ${queueStats.totalActive}, Completed: ${queueStats.totalCompleted}, Failed: ${queueStats.totalFailed}, Delayed: ${queueStats.totalDelayed}`,
+      );
+
+      if (queueStats.totalWaiting + queueStats.totalActive + queueStats.totalCompleted
+          + queueStats.totalFailed + queueStats.totalDelayed > 10000) {
+        this.logger.warn('High total job count across queues', queueStats as object);
       }
 
-      await this.checkRedisMemory();
+      if (memoryInfo.usedMemoryPercent >= config.queueCleanup.redisMemoryCriticalPercent) {
+        this.logger.error(
+          `Redis memory critical (${memoryInfo.usedMemoryPercent.toFixed(1)}%) - triggering aggressive cleanup`,
+        );
+        await this.aggressiveCleanup();
+      } else if (memoryInfo.usedMemoryPercent >= config.queueCleanup.redisMemoryWarnPercent) {
+        this.logger.warn(
+          `Redis memory warning: ${memoryInfo.usedMemoryPercent.toFixed(1)}%`,
+        );
+      }
     } catch (error) {
       this.logger.error(
-        `Error during queue/Redis monitoring: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Monitoring failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
+    } finally {
+      this.isMonitoringRunning = false;
     }
   }
 
-  // Bull uses one Redis connection per queue; any queue's client is the same Redis for INFO memory.
-  private async checkRedisMemory() {
+  /**
+   * Clean up a single queue's completed and failed jobs.
+   */
+  private async cleanupQueue(queue: Queue): Promise<CleanupStats> {
+    const stats: CleanupStats = {
+      queueName: queue.name,
+      completedRemoved: 0,
+      failedRemoved: 0,
+    };
+
     try {
-      const redis = this.emailQueue.client;
-      const info = await redis.info('memory');
+      const completedRemoved = await queue.clean(
+        config.queueCleanup.completedCleanAgeMs,
+        'completed',
+      );
+      stats.completedRemoved = completedRemoved.length;
+
+      const failedRemoved = await queue.clean(
+        config.queueCleanup.failedCleanAgeMs,
+        'failed',
+      );
+      stats.failedRemoved = failedRemoved.length;
+    } catch (error) {
+      this.logger.error(
+        `Failed to cleanup queue ${queue.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+
+    return stats;
+  }
+
+  /**
+   * Clean up stuck active jobs that have been running too long.
+   */
+  private async cleanupStuckActiveJobs(queue: Queue): Promise<number> {
+    let removedCount = 0;
+
+    try {
+      const activeJobs = await queue.getJobs(['active'], 0, -1);
+      const now = Date.now();
+
+      for (const job of activeJobs) {
+        const age = now - job.timestamp;
+        if (age > config.queueCleanup.stuckActiveAgeMs) {
+          this.logger.warn(
+            `Removing stuck active job ${job.id} in queue ${queue.name} (age: ${Math.round(age / 1000 / 60)} minutes)`,
+          );
+          await job.remove();
+          removedCount += 1;
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to cleanup stuck jobs in queue ${queue.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+
+    return removedCount;
+  }
+
+  /**
+   * Get Redis memory information using the first queue's client.
+   */
+  private async getRedisMemoryInfo(): Promise<RedisMemoryInfo> {
+    try {
+      const client = this.emailQueue.client;
+      const info = await client.info('memory');
       const lines = info.split(/\r?\n/);
 
-      let usedBytes = 0;
-      let maxBytes = 0;
+      let usedMemory = 0;
+      let maxMemory = 0;
 
       for (const line of lines) {
         if (line.startsWith('used_memory:')) {
-          usedBytes = parseInt(line.slice('used_memory:'.length), 10);
+          usedMemory = parseInt(line.slice('used_memory:'.length), 10);
         }
         if (line.startsWith('maxmemory:')) {
-          maxBytes = parseInt(line.slice('maxmemory:'.length), 10);
+          maxMemory = parseInt(line.slice('maxmemory:'.length), 10);
         }
       }
 
-      if (maxBytes <= 0) {
-        const usedMB = Math.round(usedBytes / 1024 / 1024);
-        this.logger.log(`Redis memory: ${usedMB} MB (maxmemory not set)`);
-        return;
-      }
-
-      const percent = (usedBytes / maxBytes) * 100;
-      const usedMB = Math.round(usedBytes / 1024 / 1024);
-      const maxMB = Math.round(maxBytes / 1024 / 1024);
-
-      if (percent >= config.queueCleanup.redisMemoryCriticalPercent) {
-        this.logger.error(`Redis memory critical: ${usedMB} MB / ${maxMB} MB (${percent.toFixed(1)}%)`);
-        await this.aggressiveCleanup();
-      } else if (percent >= config.queueCleanup.redisMemoryWarnPercent) {
-        this.logger.warn(`Redis memory warning: ${usedMB} MB / ${maxMB} MB (${percent.toFixed(1)}%)`);
-      } else {
-        this.logger.log(`Redis memory: ${usedMB} MB / ${maxMB} MB (${percent.toFixed(1)}%)`);
-      }
+      const usedMemoryPercent = maxMemory > 0 ? (usedMemory / maxMemory) * 100 : 0;
+      return { usedMemory, maxMemory, usedMemoryPercent };
     } catch (error) {
       this.logger.error(
-        `Error checking Redis memory: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to get Redis memory info: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
+      return { usedMemory: 0, maxMemory: 0, usedMemoryPercent: 0 };
     }
   }
 
-  // Shorter retention than config.queueCleanup so we reclaim memory quickly when usage is critical.
+  /**
+   * Get aggregated statistics across all queues.
+   */
+  private async getQueueStatistics(): Promise<{
+    totalWaiting: number;
+    totalActive: number;
+    totalCompleted: number;
+    totalFailed: number;
+    totalDelayed: number;
+  }> {
+    let totalWaiting = 0;
+    let totalActive = 0;
+    let totalCompleted = 0;
+    let totalFailed = 0;
+    let totalDelayed = 0;
+
+    for (const queue of this.queues) {
+      try {
+        const counts = await queue.getJobCounts();
+        totalWaiting += counts.waiting ?? 0;
+        totalActive += counts.active ?? 0;
+        totalCompleted += counts.completed ?? 0;
+        totalFailed += counts.failed ?? 0;
+        totalDelayed += counts.delayed ?? 0;
+      } catch (error) {
+        this.logger.error(
+          `Failed to get counts for queue ${queue.name}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+      }
+    }
+
+    return { totalWaiting, totalActive, totalCompleted, totalFailed, totalDelayed };
+  }
+
+  /**
+   * Shorter retention when Redis memory is critical; reclaims memory quickly.
+   */
   private async aggressiveCleanup() {
     this.logger.warn('Running aggressive queue cleanup due to high Redis memory');
 
@@ -180,7 +318,7 @@ export class QueueCleanupCron {
     const failedAgeMs = 60 * 60 * 1000;
     const activeAgeMs = 30 * 60 * 1000;
 
-    for (const queue of this.allQueues) {
+    for (const queue of this.queues) {
       try {
         await queue.clean(completedAgeMs, 'completed');
         await queue.clean(failedAgeMs, 'failed');

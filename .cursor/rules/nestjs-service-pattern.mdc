@@ -47,7 +47,19 @@ import { ApiRequest } from '../../common/types/request.types';
 
 ## Rules
 
-- **Full JSDoc on every public method**: Every public service method MUST have a full JSDoc block (description + `@param` for each parameter + `@returns`, and `@throws` when relevant). Update the JSDoc whenever the method’s parameters, return type, or behavior changes. See `comments.mdc` for format and examples.
+- **Full JSDoc on every public method**: Every public service method MUST have a full JSDoc block: description, `@param` for each parameter, `@returns`, and `@throws` only when applicable (see below). Update the JSDoc whenever the method’s parameters, return type, or behavior changes. For format and more examples, see the external rule file **comments.mdc** when present in this project.
+  - **@throws**: Required only when a public method can **propagate** exceptions to callers. Methods that catch errors and return via `generateErrorResponse()` do not propagate—do not add `@throws` for those. When a method does not swallow errors with `generateErrorResponse()`, document propagated exceptions with `@throws`. For methods that do use `generateErrorResponse()`, document any **internal** validation or other errors thrown **before** the try/catch (e.g. by the validator) with `@throws` so callers know what can be thrown prior to the guarded block.
+  - **Minimal JSDoc example** (full patterns in **comments.mdc**):
+    ```ts
+    /**
+     * Short description of what the method does.
+     * @param dto - Input DTO
+     * @param request - API request (language, etc.)
+     * @returns Standardized success/error response (e.g. from generateSuccessResponse / generateErrorResponse)
+     * @throws {SomeError} When validation fails before try/catch (if applicable)
+     */
+    async methodName(dto: SomeDto, request: ApiRequest): Promise<any> { ... }
+    ```
 - Always wrap in `try/catch` with error logging and `generateErrorResponse()`
 - Always validate through dedicated validator class
 - Always use `generateSuccessResponse()` for success
