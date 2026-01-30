@@ -70,6 +70,7 @@ interface TokenUser {
 interface GeneratedTokens {
   accessToken: string;
   refreshToken: string;
+  expiresIn: number;
 }
 
 // Internal type for GitHub email response
@@ -132,7 +133,7 @@ export class AuthService {
       }
 
       // Generate tokens
-      const { accessToken, refreshToken } = this.generateTokens(user);
+      const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
       // Create session
       await this.sessionRepository.createSession({
@@ -146,6 +147,7 @@ export class AuthService {
       const response: LoginResponseDto = {
         accessToken,
         refreshToken,
+        expiresIn,
         user: {
           id: user.id,
           email: user.email,
@@ -373,7 +375,7 @@ export class AuthService {
         });
       }
 
-      const { accessToken, refreshToken } = this.generateTokens(user);
+      const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
       await this.sessionRepository.createSession({
         userId: user.id,
@@ -386,6 +388,7 @@ export class AuthService {
       const response: OAuthLoginResponseDto = {
         accessToken,
         refreshToken,
+        expiresIn,
         user: {
           id: user.id,
           email: user.email,
@@ -527,7 +530,7 @@ export class AuthService {
         });
       }
 
-      const { accessToken, refreshToken } = this.generateTokens(user);
+      const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
       await this.sessionRepository.createSession({
         userId: user.id,
@@ -540,6 +543,7 @@ export class AuthService {
       const response: OAuthLoginResponseDto = {
         accessToken,
         refreshToken,
+        expiresIn,
         user: {
           id: user.id,
           email: user.email,
@@ -595,7 +599,7 @@ export class AuthService {
 
       await this.sessionRepository.deleteSessionByRefreshToken(refreshTokenDto.refreshToken);
 
-      const { accessToken, refreshToken } = this.generateTokens(user);
+      const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
       await this.sessionRepository.createSession({
         userId: user.id,
@@ -611,6 +615,7 @@ export class AuthService {
         data: {
           accessToken,
           refreshToken,
+          expiresIn,
         },
       });
     } catch (error) {
@@ -889,7 +894,7 @@ export class AuthService {
       };
       await this.mfaChallengeSessionRepository.update(session.id, updateData);
 
-      const { accessToken, refreshToken } = this.generateTokens(user);
+      const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
       await this.sessionRepository.createSession({
         userId: user.id,
@@ -905,6 +910,7 @@ export class AuthService {
         data: {
           accessToken,
           refreshToken,
+          expiresIn,
           user: {
             id: user.id,
             email: user.email,
@@ -973,7 +979,7 @@ export class AuthService {
       };
       await this.mfaChallengeSessionRepository.update(session.id, updateData);
 
-      const { accessToken, refreshToken } = this.generateTokens(user);
+      const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
       await this.sessionRepository.createSession({
         userId: user.id,
@@ -989,6 +995,7 @@ export class AuthService {
         data: {
           accessToken,
           refreshToken,
+          expiresIn,
           user: {
             id: user.id,
             email: user.email,
@@ -1107,7 +1114,11 @@ export class AuthService {
       expiresIn: config.refreshTokenExpirationInSeconds,
     });
 
-    return { accessToken, refreshToken };
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: config.tokenExpirationInSeconds,
+    };
   }
 
   // ============================================

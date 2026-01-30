@@ -129,8 +129,8 @@ export class AuthController {
    * @param response - Express response for status and body
    * @returns Response sent via response (success or error)
    */
-  @Get('verify-email')
-  async verifyEmail(@Query() verifyEmailDto: VerifyEmailDto, @Req() request: ApiRequest, @Res() response: Response) {
+  @Post('verify-email')
+  async verifyEmail(@Body() verifyEmailDto: VerifyEmailDto, @Req() request: ApiRequest, @Res() response: Response) {
     const { status, ...restOfResponse } = await this.authService.verifyEmail(verifyEmailDto, request);
     response.status(status).json(restOfResponse);
   }

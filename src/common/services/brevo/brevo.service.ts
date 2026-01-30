@@ -74,6 +74,7 @@ export async function sendEmail(
         'api-key': config.brevo.apiKey,
         'Content-Type': 'application/json',
       },
+      timeout: 20_000, // 20s – avoid hanging past Bull lockDuration and trigger retry on real failures
     },
   );
 

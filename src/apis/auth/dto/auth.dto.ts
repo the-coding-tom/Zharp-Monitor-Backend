@@ -10,6 +10,8 @@ export class LoginDto {
 export class LoginResponseDto {
   accessToken: string;
   refreshToken: string;
+  /** Access token TTL in seconds; frontend can use this to refresh before expiry. */
+  expiresIn: number;
   user: {
     id: number;
     email: string;
@@ -41,6 +43,8 @@ export class RefreshTokenDto {
 export class RefreshTokenResponseDto {
   accessToken: string;
   refreshToken: string;
+  /** Access token TTL in seconds; frontend can use this to refresh before expiry. */
+  expiresIn: number;
 }
 
 // ============================================================================
@@ -90,6 +94,8 @@ export class OAuthUrlResponseDto {
 export class OAuthLoginResponseDto {
   accessToken: string;
   refreshToken: string;
+  /** Access token TTL in seconds; frontend can use this to refresh before expiry. */
+  expiresIn: number;
   user: {
     id: number;
     email: string;

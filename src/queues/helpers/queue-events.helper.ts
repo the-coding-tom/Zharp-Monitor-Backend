@@ -35,8 +35,9 @@ export function registerQueueEventListeners(
     );
   });
 
-  queue.on('stalled', (jobId: string | number) => {
-    logger.warn(`[EVENT: STALLED] Job ${jobId} stalled (took too long to process)`);
+  queue.on('stalled', (jobOrId: Job | string | number) => {
+    const id = typeof jobOrId === 'object' && jobOrId?.id != null ? jobOrId.id : jobOrId;
+    logger.warn(`[EVENT: STALLED] Job ${id} stalled (took too long to process)`);
   });
 
   queue.on('progress', (job: Job, progress: number | object) => {

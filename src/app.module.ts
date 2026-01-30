@@ -111,7 +111,7 @@ export class AppModule implements NestModule {
         { path: 'auth/refresh', method: RequestMethod.POST },
         { path: 'auth/reset-password', method: RequestMethod.POST },
         { path: 'auth/confirm-password-reset', method: RequestMethod.POST },
-        { path: 'auth/verify-email', method: RequestMethod.GET },
+        { path: 'auth/verify-email', method: RequestMethod.POST },
         { path: 'auth/resend-verification', method: RequestMethod.POST },
         { path: 'auth/google', method: RequestMethod.GET },
         { path: 'auth/google/callback', method: RequestMethod.GET },
