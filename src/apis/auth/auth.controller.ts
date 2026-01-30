@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Req, Res, Get, Query } from '@nestjs/common';
+import { Controller, Post, Body, Req, Res, Get } from '@nestjs/common';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { ApiRequest } from '../../common/types/request.types';
