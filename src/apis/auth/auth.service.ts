@@ -107,7 +107,7 @@ export class AuthService {
    */
   async login(loginDto: LoginDto, request: ApiRequest): Promise<any> {
     try {
-      const { user } = await this.authValidator.validateLogin({ ...loginDto, language: request.language });
+      const { dto, user } = await this.authValidator.validateLogin({ ...loginDto, language: request.language });
 
       if (user.totpEnabled) {
         const sessionToken = generateSessionToken();
@@ -135,11 +135,13 @@ export class AuthService {
       // Generate tokens
       const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
-      // Create session
+      const rememberMe = !!dto.rememberMe;
+
       await this.sessionRepository.createSession({
         userId: user.id,
         token: refreshToken,
-        expiresAt: moment().add(7, 'days').toDate(),
+        expiresAt: this.getSessionExpiryDate(rememberMe),
+        rememberMe: rememberMe,
         userAgent: request.headers['user-agent'] || 'unknown',
         ipAddress: request.ip || 'unknown',
       });
@@ -380,7 +382,8 @@ export class AuthService {
       await this.sessionRepository.createSession({
         userId: user.id,
         token: refreshToken,
-        expiresAt: moment().add(7, 'days').toDate(),
+        expiresAt: this.getSessionExpiryDate(true),
+        rememberMe: true,
         userAgent: request.headers['user-agent'] || 'unknown',
         ipAddress: request.ip || 'unknown',
       });
@@ -535,7 +538,8 @@ export class AuthService {
       await this.sessionRepository.createSession({
         userId: user.id,
         token: refreshToken,
-        expiresAt: moment().add(7, 'days').toDate(),
+        expiresAt: this.getSessionExpiryDate(true),
+        rememberMe: true,
         userAgent: request.headers['user-agent'] || 'unknown',
         ipAddress: request.ip || 'unknown',
       });
@@ -595,7 +599,7 @@ export class AuthService {
    */
   async refreshToken(refreshTokenDto: RefreshTokenDto, request: ApiRequest): Promise<any> {
     try {
-      const { user } = await this.authValidator.validateRefreshToken({ ...refreshTokenDto, language: request.language });
+      const { user, session } = await this.authValidator.validateRefreshToken({ ...refreshTokenDto, language: request.language });
 
       await this.sessionRepository.deleteSessionByRefreshToken(refreshTokenDto.refreshToken);
 
@@ -604,7 +608,8 @@ export class AuthService {
       await this.sessionRepository.createSession({
         userId: user.id,
         token: refreshToken,
-        expiresAt: moment().add(7, 'days').toDate(),
+        expiresAt: this.getSessionExpiryDate(session.rememberMe),
+        rememberMe: session.rememberMe,
         userAgent: request.headers['user-agent'] || 'unknown',
         ipAddress: request.ip || 'unknown',
       });
@@ -884,7 +889,7 @@ export class AuthService {
    */
   async challengeMfa(mfaChallengeDto: MfaChallengeDto, request: ApiRequest): Promise<any> {
     try {
-      const { user, session } = await this.authValidator.validateMfaChallenge({
+      const { dto, user, session } = await this.authValidator.validateMfaChallenge({
         ...mfaChallengeDto,
         language: request.language,
       });
@@ -896,10 +901,13 @@ export class AuthService {
 
       const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
+      const rememberMe = !!dto.rememberMe;
+
       await this.sessionRepository.createSession({
         userId: user.id,
         token: refreshToken,
-        expiresAt: moment().add(7, 'days').toDate(),
+        expiresAt: this.getSessionExpiryDate(rememberMe),
+        rememberMe,
         userAgent: request.headers['user-agent'] || 'unknown',
         ipAddress: request.ip || 'unknown',
       });
@@ -967,7 +975,7 @@ export class AuthService {
    */
   async consumeBackupCode(mfaBackupCodeConsumeDto: MfaBackupCodeConsumeDto, request: ApiRequest): Promise<any> {
     try {
-      const { user, session, matchingCode } = await this.authValidator.validateMfaBackupCodeConsume({
+      const { dto, user, session, matchingCode } = await this.authValidator.validateMfaBackupCodeConsume({
         ...mfaBackupCodeConsumeDto,
         language: request.language,
       });
@@ -981,10 +989,13 @@ export class AuthService {
 
       const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
+      const rememberMe = !!dto.rememberMe;
+
       await this.sessionRepository.createSession({
         userId: user.id,
         token: refreshToken,
-        expiresAt: moment().add(7, 'days').toDate(),
+        expiresAt: this.getSessionExpiryDate(rememberMe),
+        rememberMe,
         userAgent: request.headers['user-agent'] || 'unknown',
         ipAddress: request.ip || 'unknown',
       });
@@ -1081,6 +1092,15 @@ export class AuthService {
       LoggerService.error(`Error regenerating backup codes: ${error}`);
       return generateErrorResponse(error);
     }
+  }
+
+  // ============================================
+  // Private Methods - Session Expiry
+  // ============================================
+
+  private getSessionExpiryDate(rememberMe: boolean): Date {
+    const days = rememberMe ? config.sessionExpiry.rememberMeDays : config.sessionExpiry.defaultDays;
+    return moment().add(days, 'days').toDate();
   }
 
   // ============================================

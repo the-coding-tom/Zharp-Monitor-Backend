@@ -5,6 +5,8 @@
 export class LoginDto {
   email: string;
   password: string;
+  /** When true, session lasts 30 days; otherwise 1 day. */
+  rememberMe?: boolean;
 }
 
 export class LoginResponseDto {
@@ -119,11 +121,15 @@ export class MfaVerifyDto {
 export class MfaChallengeDto {
   code: string;
   sessionToken: string;
+  /** Must match the rememberMe sent at login; used for session expiry. */
+  rememberMe?: boolean;
 }
 
 export class MfaBackupCodeConsumeDto {
   code: string;
   sessionToken: string;
+  /** Must match the rememberMe sent at login; used for session expiry. */
+  rememberMe?: boolean;
 }
 
 export class MfaDisableDto {

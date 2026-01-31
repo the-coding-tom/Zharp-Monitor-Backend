@@ -59,6 +59,7 @@ export class AuthValidator {
       password: Joi.string().required().messages({
         'any.required': translate(this.i18n, 'validation.password.required', data.language),
       }),
+      rememberMe: Joi.boolean().optional(),
       language: Joi.string()
         .valid(...config.i18n.supportedLanguages)
         .default(config.defaultLanguage)
@@ -414,6 +415,7 @@ export class AuthValidator {
       sessionToken: Joi.string().required().messages({
         'any.required': translate(this.i18n, 'validation.mfaSessionNotFound', data.language),
       }),
+      rememberMe: Joi.boolean().optional(),
       language: Joi.string()
         .valid(...config.i18n.supportedLanguages)
         .default(config.defaultLanguage)
@@ -527,6 +529,7 @@ export class AuthValidator {
       sessionToken: Joi.string().required().messages({
         'any.required': translate(this.i18n, 'validation.mfaSessionNotFound', data.language),
       }),
+      rememberMe: Joi.boolean().optional(),
       language: Joi.string()
         .valid(...config.i18n.supportedLanguages)
         .default(config.defaultLanguage)

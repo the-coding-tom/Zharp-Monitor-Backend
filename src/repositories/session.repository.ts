@@ -10,6 +10,7 @@ export class SessionRepository {
         userId: sessionData.userId,
         refreshToken: sessionData.token,
         expiresAt: sessionData.expiresAt,
+        rememberMe: sessionData.rememberMe,
         userAgent: sessionData.userAgent,
         ipAddress: sessionData.ipAddress,
       },

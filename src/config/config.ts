@@ -17,8 +17,12 @@ export const config = {
   tokenExpiration: process.env.TOKEN_EXPIRATION || '15m',
   refreshTokenExpiration: process.env.REFRESH_TOKEN_EXPIRATION || '7d',
   tokenExpirationInSeconds: 15 * 60, // 15 minutes for access tokens
-  refreshTokenExpirationInSeconds: 7 * 24 * 60 * 60, // 7 days Reference: 7 * HOURS_IN_DAY * MINUTES_IN_HOUR * SECONDS_IN_MINUTE
+  refreshTokenExpirationInSeconds: 7 * 24 * 60 * 60, // 7 days
   bcryptSaltRounds: 10,
+  sessionExpiry: {
+    defaultDays: 1,
+    rememberMeDays: 30,
+  },
   bearerTokenPrefixLength: 7, // "Bearer ".length
 
   // OAuth Configuration
