@@ -42,7 +42,3 @@ lerna-debug.log*
 # Firebase Service Account Key (sensitive)
 firebase-service-account-key.json
 *-service-account-key.json
-
-# Prisma
-prisma/migrations
-
