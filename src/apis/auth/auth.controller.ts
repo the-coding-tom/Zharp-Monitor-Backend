@@ -175,7 +175,7 @@ export class AuthController {
 
   /**
    * Redirect URL for Google OAuth; returns OAuth URL for client redirect.
-   * @param request - API request (state, redirect_uri, etc.)
+   * @param request - API request (language, etc.)
    * @param response - Express response for status and body
    * @returns Response sent via response (OAuth URL)
    */
@@ -207,7 +207,7 @@ export class AuthController {
 
   /**
    * Redirect URL for GitHub OAuth; returns OAuth URL for client redirect.
-   * @param request - API request (state, redirect_uri, etc.)
+   * @param request - API request (language, etc.)
    * @param response - Express response for status and body
    * @returns Response sent via response (OAuth URL)
    */
