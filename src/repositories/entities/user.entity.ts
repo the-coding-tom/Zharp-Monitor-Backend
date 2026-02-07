@@ -102,4 +102,3 @@ export interface ProfileEntity {
   mfaEnabled: boolean;
   createdAt: Date;
 }
-

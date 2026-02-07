@@ -136,7 +136,7 @@ export class AuthService {
       // Generate tokens
       const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
-      const rememberMe = !!dto.rememberMe;
+      const rememberMe = dto.rememberMe || false;
 
       await this.sessionRepository.createSession({
         userId: user.id,

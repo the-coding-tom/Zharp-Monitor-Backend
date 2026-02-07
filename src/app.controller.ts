@@ -1,4 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { AppService } from './app.service';
 
 /**
@@ -10,17 +11,16 @@ export class AppController {
 
   /** Root hello message. */
   @Get()
-  getHello(): string {
-    return this.appService.getHello();
+  getHello(@Res() response: Response) {
+    const { status, ...restOfResponse } = this.appService.getHello();
+    response.status(status).json(restOfResponse);
   }
 
   /** Health check for load balancers and monitoring. */
   @Get('health')
-  getHealth() {
-    return {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-    };
+  getHealth(@Res() response: Response) {
+    const { status, ...restOfResponse } = this.appService.getHealth();
+    response.status(status).json(restOfResponse);
   }
 }
 
