@@ -258,11 +258,12 @@ export class AuthService {
         config.oauth.redirectUri,
       );
 
+      const state = `google:${randomBytes(32).toString('hex')}`;
       const oauthUrl = googleClient.generateAuthUrl({
         access_type: 'offline',
         scope: ['email', 'profile'],
         redirect_uri: config.oauth.redirectUri,
-        state: randomBytes(32).toString('hex'),
+        state,
       });
 
       return generateSuccessResponse({
@@ -378,6 +379,30 @@ export class AuthService {
         });
       }
 
+      // MFA required: return session token instead of access/refresh tokens
+      if (user.totpEnabled) {
+        const sessionToken = generateSessionToken();
+        const sessionData: CreateMfaChallengeSessionData = {
+          userId: user.id,
+          email: user.email,
+          mfaMethod: MfaMethod.TOTP,
+          sessionToken,
+          expiresAt: moment().add(10, 'minutes').toDate(),
+          status: MfaChallengeSessionStatus.pending,
+        };
+        await this.mfaChallengeSessionRepository.create(sessionData);
+
+        return generateSuccessResponse({
+          statusCode: HttpStatus.OK,
+          message: translate(this.i18n, 'auth.requiresTwoFactor', request.language),
+          data: {
+            requiresTwoFactor: true,
+            sessionToken,
+            email: user.email,
+          },
+        });
+      }
+
       const { accessToken, refreshToken, expiresIn } = this.generateTokens(user);
 
       await this.sessionRepository.createSession({
@@ -423,11 +448,12 @@ export class AuthService {
    */
   async getGitHubOAuthUrl(request: ApiRequest): Promise<any> {
     try {
+      const state = `github:${randomBytes(32).toString('hex')}`;
       const githubOAuthUrl = new URL(config.oauth.github.authUrl!);
       githubOAuthUrl.searchParams.set('client_id', config.oauth.github.clientId!);
       githubOAuthUrl.searchParams.set('redirect_uri', config.oauth.redirectUri!);
       githubOAuthUrl.searchParams.set('scope', 'read:user user:email');
-      githubOAuthUrl.searchParams.set('state', randomBytes(32).toString('hex'));
+      githubOAuthUrl.searchParams.set('state', state);
       return generateSuccessResponse({
         statusCode: HttpStatus.OK,
         message: translate(this.i18n, 'auth.oauth.url.success', request.language),
@@ -531,6 +557,30 @@ export class AuthService {
       } else {
         await this.oauthAccountRepository.update(oauthAccount!.id, {
           accessToken: tokenData.access_token,
+        });
+      }
+
+      // MFA required: return session token instead of access/refresh tokens
+      if (user.totpEnabled) {
+        const sessionToken = generateSessionToken();
+        const sessionData: CreateMfaChallengeSessionData = {
+          userId: user.id,
+          email: user.email,
+          mfaMethod: MfaMethod.TOTP,
+          sessionToken,
+          expiresAt: moment().add(10, 'minutes').toDate(),
+          status: MfaChallengeSessionStatus.pending,
+        };
+        await this.mfaChallengeSessionRepository.create(sessionData);
+
+        return generateSuccessResponse({
+          statusCode: HttpStatus.OK,
+          message: translate(this.i18n, 'auth.requiresTwoFactor', request.language),
+          data: {
+            requiresTwoFactor: true,
+            sessionToken,
+            email: user.email,
+          },
         });
       }
 
